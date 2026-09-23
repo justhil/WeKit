@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="feature_jev_analysis_name">Jev message analysis</string>
+    <string name="feature_jev_analysis_description">Off by default. Sends displayed chat text to TypeSafe Jev and shows analysis below the matching bubble; requires an API key.</string>
+    <string name="chat_jev_api_key">TypeSafe API key</string>
+    <string name="chat_jev_privacy">Save your key and settings here, then enable the switch. By default, entering a chat analyzes its latest configured number of messages. Enable render mode to analyze text messages as they appear while scrolling; messages that scroll off-screen before processing are skipped. Each request also sends up to 200 earlier text messages to TypeSafe (the first 80 characters of each). Previous results remain cached. Larger contexts and more analyses take longer and cost more; concurrent requests are limited separately. Reopen the chat after changing modes. Settings stay local.</string>
+    <string name="chat_jev_render_mode">Analyze text messages as they appear while scrolling</string>
+    <string name="chat_jev_context_count">Earlier text messages sent with each request (0–200)</string>
+    <string name="chat_jev_latest_count">Latest messages to analyze on chat entry (1–200)</string>
+    <string name="chat_jev_batch_limit">Messages analyzed at once (1–20)</string>
+    <string name="chat_jev_prompt">Custom prompt, blank uses the default</string>
+</resources>

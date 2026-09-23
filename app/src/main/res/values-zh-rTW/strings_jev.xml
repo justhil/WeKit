@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="feature_jev_analysis_name">Jev 消息分析</string>
+    <string name="feature_jev_analysis_description">預設關閉。將聊天文字傳送給 TypeSafe Jev 分析，在對應氣泡下方顯示結果；需要設定 API Key。</string>
+    <string name="chat_jev_api_key">TypeSafe API Key</string>
+    <string name="chat_jev_privacy">在此儲存金鑰與設定，再開啟開關。預設進入聊天時只分析最新指定則數的消息；開啟跟隨渲染模式後，捲動到的文字消息才會分析，處理前捲出螢幕的消息會略過。每次分析另附帶最多 200 則更早的文字消息（每則最多取前 80 字）傳送至 TypeSafe；舊結果仍會快取。上下文和分析消息越多，請求越慢、費用越高；並行則數另有限制。切換模式後請重新進入聊天。設定儲存在本機。</string>
+    <string name="chat_jev_render_mode">跟隨渲染分析目前頁面的文字消息</string>
+    <string name="chat_jev_context_count">每次附帶的更早文字消息則數（0–200）</string>
+    <string name="chat_jev_latest_count">進入聊天時分析最新消息則數（1–200）</string>
+    <string name="chat_jev_batch_limit">一次同時分析的消息則數（1–20）</string>
+    <string name="chat_jev_prompt">自訂提示詞，留空使用預設</string>
+</resources>
