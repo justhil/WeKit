@@ -3,10 +3,10 @@
     <string name="feature_jev_analysis_name">Jev 消息分析</string>
     <string name="feature_jev_analysis_description">默认关闭。将聊天文本发送给 TypeSafe Jev 分析，在对应气泡下方显示结果；需要配置 API Key。</string>
     <string name="chat_jev_api_key">TypeSafe API Key</string>
-    <string name="chat_jev_privacy">在这里保存密钥和配置，再开启开关。默认进入聊天时只分析最新指定条数的消息；开启跟随渲染模式后，滚动到的文本消息才会分析，处理前滑出屏幕的消息会跳过。每次分析另附带最多 200 条更早的文本消息（每条最多取前 80 字）发送给 TypeSafe；旧结果仍会缓存。上下文和分析消息越多，请求越慢、费用越高；并发数单独限制。切换模式后请重新进入聊天。配置保存在本地。</string>
+    <string name="chat_jev_privacy">在这里保存密钥和配置，再开启开关。默认进入聊天时只分析最新指定条数的消息；开启跟随渲染模式后，滚动到的消息才会分析，处理前滑出屏幕的会跳过。每次分析会把这段对话（中间超过 6 小时的空档视为新对话）里最多指定条数的消息、被引用的消息、之后最多 3 条回复，以及你写的聊天背景和补充说明发送给 TypeSafe；离目标较近的消息每条最多取 300 字，更早的取 80 字，图片、表情等只发送类型占位。之后的回复变多时会重新分析。结果只缓存在内存中；点气泡下的标签可查看详情并设置这个聊天的背景。上下文越多，请求越慢、费用越高；并发数单独限制。切换模式后请重新进入聊天。配置保存在本地。</string>
     <string name="chat_jev_render_mode">跟随渲染分析当前页面的文本消息</string>
-    <string name="chat_jev_context_count">每次附带的更早文本消息条数（0–200）</string>
+    <string name="chat_jev_context_count">每次最多附带的上下文消息条数（按对话段落截取，0–200）</string>
     <string name="chat_jev_latest_count">进入聊天时分析最新消息条数（1–200）</string>
     <string name="chat_jev_batch_limit">一次同时分析的消息条数（1–20）</string>
-    <string name="chat_jev_prompt">自定义提示词，留空使用默认</string>
+    <string name="chat_jev_prompt">补充说明（会随每次分析发送，如：我说话比较直），留空不发送</string>
 </resources>

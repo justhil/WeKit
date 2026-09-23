@@ -1,5 +1,6 @@
 package dev.ujhhgtg.wekit.features.items.chat
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
@@ -13,26 +14,33 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.wekit.R
+import dev.ujhhgtg.wekit.features.api.core.WeApi
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
 import dev.ujhhgtg.wekit.features.api.core.models.MessageInfo
 import dev.ujhhgtg.wekit.features.api.core.models.MessageType
@@ -40,6 +48,7 @@ import dev.ujhhgtg.wekit.features.api.core.models.WeMessage
 import dev.ujhhgtg.wekit.features.api.ui.WeChatMessageViewApi
 import dev.ujhhgtg.wekit.features.core.ClickableFeature
 import dev.ujhhgtg.wekit.features.core.FeatureCategoryIds
+import dev.ujhhgtg.wekit.preferences.WePrefs
 import dev.ujhhgtg.wekit.preferences.WePrefs.Companion.prefOption
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
@@ -48,6 +57,8 @@ import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.HookParam
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.isDarkMode
+import dev.ujhhgtg.wekit.utils.strings.isGroupChatWxId
+import dev.ujhhgtg.wekit.utils.strings.stripWxId
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -76,7 +87,7 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         .build()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val windowLoader = Executors.newSingleThreadExecutor()
-    private val results = LinkedHashMap<Long, String?>()
+    private val results = LinkedHashMap<Long, JevResult>()
     private val pending = mutableMapOf<Long, Int>()
     private val queue = ArrayDeque<Pair<JevJob, Int>>()
     private val renderCandidates = linkedMapOf<Long, Long>()
@@ -89,11 +100,11 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
     private var activeChat: Any? = null
     private var windowVersion = 0
     private var apiKey by prefOption("jev_api_key", "")
-    private var contextCount by prefOption("jev_context_count", 6)
+    private var contextCount by prefOption("jev_context_count", 30)
     private var latestCount by prefOption("jev_latest_count", 20)
     private var renderOnScroll by prefOption("jev_render_on_scroll", false)
     private var batchLimit by prefOption("jev_batch_limit", 4)
-    private var prompt by prefOption("jev_prompt", "")
+    private var note by prefOption("jev_prompt", "")
     private var lastKey = ""
 
     override fun onEnable() {
@@ -111,9 +122,13 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
     }
 
     private fun resetWindow() {
-        val previous = windowVersion++
+        invalidate()
         activeChat = null
         activeTalker = null
+    }
+
+    private fun invalidate() {
+        val previous = windowVersion++
         (renderCandidates.keys + loadingCandidates.keys).forEach { id ->
             if (pending[id] == previous) pending.remove(id)
         }
@@ -126,6 +141,12 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         queue.clear()
     }
 
+    private fun needsAnalysis(job: JevJob) = (results[job.id]?.afterCount ?: -1) < job.afterCount
+
+    private fun relationKey(talker: String) = "jev_relation_$talker"
+
+    private fun relationOf(talker: String) = WePrefs.getStringOrDef(relationKey(talker), "")
+
     override fun onCreateView(param: HookParam, view: View) {
         val message = WeChatMessageViewApi.getMsgInfoFromParam(param)
         val key = apiKey.trim()
@@ -136,10 +157,10 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
             resetWindow()
             WeChatMessageViewApi.findBoundViews { true }.forEach { (boundView, _) -> clearLabel(boundView) }
         }
-        val label = results[message.id]
+        val result = results[message.id]
         clearLabel(view)
-        if (message.id > 0 && message.typeCode == MessageType.TEXT.code && label != null) {
-            showLabel(view, message, label)
+        if (message.id > 0 && message.type?.isText == true && result != null) {
+            showLabel(view, message, result)
         }
         if (key.isEmpty() || message.talker.isBlank()) return
         val chat = WeChatMessageViewApi.getChattingContextFromParam(param)
@@ -159,13 +180,13 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         val talker = message.talker
         val count = latestCount.coerceIn(1, 200)
         val historyCount = contextCount.coerceIn(0, 200)
-        val instructions = prompt
+        val relation = relationOf(talker)
+        val extra = note
         windowLoader.execute {
             val jobs = runCatching {
                 if (WeDatabaseApi.isReady) {
-                    val rows = WeDatabaseApi.getMessages(talker.replace("'", "''"),
-                        pageSize = count + historyCount * 3)
-                    JevWindow.plan(rows, count, historyCount, instructions).also {
+                    val rows = WeDatabaseApi.getMessages(talker.replace("'", "''"), pageSize = count + historyCount)
+                    JevWindow.plan(rows, count, historyCount, decodeQuotes(rows), relation, extra).also {
                         WeLogger.i(TAG, "window loaded=${rows.size}, planned=${it.size}")
                     }
                 } else {
@@ -177,7 +198,7 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
             mainHandler.post {
                 if (version != windowVersion || !isActive || apiKey.trim() != key) return@post
                 jobs.forEach { job ->
-                    if (!results.containsKey(job.id) && !pending.containsKey(job.id)) {
+                    if (needsAnalysis(job) && !pending.containsKey(job.id)) {
                         pending[job.id] = version
                         queue.addLast(job to version)
                     }
@@ -194,8 +215,8 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
 
     private fun scheduleRendered(message: MessageInfo) {
         val id = message.id
-        if (!isActive || id <= 0 || message.typeCode != MessageType.TEXT.code ||
-            results.containsKey(id) || pending.containsKey(id) || apiKey.isBlank()) return
+        if (!isActive || id <= 0 || message.type?.isText != true || pending.containsKey(id) || apiKey.isBlank() ||
+            (results[id]?.afterCount ?: -1) >= JevWindow.AFTER) return
         val version = windowVersion
         if (renderCandidates.size >= 32) {
             val dropped = renderCandidates.keys.first()
@@ -215,7 +236,8 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                 val talker = activeTalker ?: return@postDelayed
                 val key = apiKey.trim()
                 val historyCount = contextCount.coerceIn(0, 200)
-                val instructions = prompt
+                val relation = relationOf(talker)
+                val extra = note
                 windowLoader.execute {
                     val jobs = runCatching {
                         if (!WeDatabaseApi.isReady) emptyList() else {
@@ -224,35 +246,36 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                                 compareByDescending<Map.Entry<Long, Long>> { it.value }.thenByDescending { it.key }
                             )) {
                                 if (candidate in rows) continue
-                                loadTextMessagesBefore(talker, time, candidate,
-                                    historyCount + selected.size + 8).forEach { rows[it.msgId] = it }
+                                loadAround(talker, time, candidate, historyCount + selected.size)
+                                    .forEach { rows[it.msgId] = it }
                             }
-                            JevWindow.planVisible(rows.values.sortedWith(
-                                compareByDescending<WeMessage> { it.createTime }
-                                    .thenByDescending { it.msgId }
-                            ), selected.keys, historyCount, instructions)
+                            val sorted = rows.values.sortedWith(
+                                compareByDescending<WeMessage> { it.createTime }.thenByDescending { it.msgId }
+                            )
+                            JevWindow.planVisible(sorted, selected.keys, historyCount, decodeQuotes(sorted), relation, extra)
                         }
                     }.onFailure { WeLogger.w(TAG, "failed to read rendered messages (${it.javaClass.simpleName})") }
                         .getOrDefault(emptyList())
                     mainHandler.post {
                         selected.keys.forEach { if (loadingCandidates[it] == version) loadingCandidates.remove(it) }
+                        val queued = hashSetOf<Long>()
                         if (version == windowVersion && isActive && apiKey.trim() == key) {
                             if (loggedRenderPlanVersion != version) {
                                 loggedRenderPlanVersion = version
                                 WeLogger.i(TAG, "render first batch selected=${selected.size}, planned=${jobs.size}")
                             }
                             jobs.forEach { job ->
-                                if (pending[job.id] == version) {
+                                if (pending[job.id] == version && needsAnalysis(job)) {
                                     if (queue.size >= 50) {
                                         val (dropped, oldVersion) = queue.removeFirst()
                                         if (pending[dropped.id] == oldVersion) pending.remove(dropped.id)
                                     }
                                     queue.addLast(job to version)
+                                    queued += job.id
                                 }
                             }
                             drain(key)
                         }
-                        val queued = jobs.mapTo(hashSetOf()) { it.id }
                         selected.keys.filter { it !in queued && pending[it] == version }
                             .forEach { pending.remove(it) }
                     }
@@ -261,13 +284,13 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         }
     }
 
-    private fun loadTextMessagesBefore(talker: String, time: Long, msgId: Long, limit: Int): List<WeMessage> =
-        WeDatabaseApi.executeQuery("""
+    // 目标消息之后最多 AFTER 条、之前最多 before 条，所有类型，按时间从新到旧
+    private fun loadAround(talker: String, time: Long, msgId: Long, before: Int): List<WeMessage> {
+        fun query(where: String, order: String, limit: Int) = WeDatabaseApi.executeQuery("""
             SELECT msgId, msgSvrId, talker, content, type, createTime, isSend
             FROM message
-            WHERE talker = ? AND type = 1
-              AND (createTime < ? OR (createTime = ? AND msgId <= ?))
-            ORDER BY createTime DESC, msgId DESC
+            WHERE talker = ? AND ($where)
+            ORDER BY createTime $order, msgId $order
             LIMIT ?
         """.trimIndent(), arrayOf(talker, time, time, msgId, limit)).map { row ->
             fun long(key: String) = row[key] as? Long ?: 0L
@@ -281,6 +304,31 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                 isSend = long("isSend").toInt(),
             )
         }
+        return query("createTime > ? OR (createTime = ? AND msgId > ?)", "ASC", JevWindow.AFTER).asReversed() +
+            query("createTime < ? OR (createTime = ? AND msgId <= ?)", "DESC", before + 1)
+    }
+
+    private fun decodeQuotes(rows: List<WeMessage>): Map<Long, JevQuote> {
+        val self = WeApi.selfWxId
+        return rows.filter { it.typeCode == MessageType.QUOTE.code }.mapNotNull { row ->
+            runCatching {
+                val quote = MessageInfo.QuoteMessage(row.content)
+                // 单聊的引用可能没有 chatusr，此时用 fromusr
+                val sender = runCatching { quote.chatusr }.getOrNull()?.takeIf(String::isNotEmpty)
+                    ?: runCatching { quote.fromusr }.getOrDefault("")
+                val type = runCatching { quote.type }.getOrDefault(MessageType.TEXT.code)
+                val text = if (type == MessageType.TEXT.code) runCatching { quote.content }.getOrDefault("")
+                else JevWindow.placeholder(type)
+                val group = row.talker.isGroupChatWxId
+                row.msgId to JevQuote(
+                    if (group) quote.title.stripWxId() else quote.title,
+                    sender == self,
+                    sender,
+                    if (group) text.stripWxId() else text,
+                )
+            }.onFailure { WeLogger.w(TAG, "failed to decode quote (${it.javaClass.simpleName})") }.getOrNull()
+        }.toMap()
+    }
 
     private fun drain(key: String) {
         while (running < batchLimit.coerceIn(1, 20) && queue.isNotEmpty()) {
@@ -316,7 +364,7 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                         WeLogger.w(TAG, "API returned HTTP ${it.code}")
                         null
                     } else {
-                        runCatching { JevProtocol.label(it.body.string(), job.outgoing) }
+                        runCatching { JevProtocol.parse(it.body.string(), job) }
                             .onFailure { WeLogger.w(TAG, "invalid API response (${it.javaClass.simpleName})") }
                             .getOrNull()
                     }
@@ -326,25 +374,23 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         })
     }
 
-    private fun complete(id: Long, key: String, version: Int, label: String?) {
+    private fun complete(id: Long, key: String, version: Int, result: JevResult?) {
         mainHandler.post {
             running--
             if (pending[id] == version) {
                 pending.remove(id)
-                if (isActive && apiKey.trim() == key) {
-                    if (label != null) results[id] = label
+                if (isActive && apiKey.trim() == key && result != null) {
+                    results[id] = result
                     if (results.size > 2000) results.remove(results.keys.first())
-                    if (label != null) {
-                        val bound = WeChatMessageViewApi.findBoundViews { it.id == id }
-                        var shown = 0
-                        bound.forEach { (view, message) ->
-                            if (WeChatMessageViewApi.getBoundMessage(view)?.id == id &&
-                                showLabel(view, message, label)) shown++
-                        }
-                        if (loggedResultVersion != version) {
-                            loggedResultVersion = version
-                            WeLogger.i(TAG, "first result bound=${bound.size}, shown=$shown, row=${bound.firstOrNull()?.first?.javaClass?.simpleName ?: "none"}")
-                        }
+                    val bound = WeChatMessageViewApi.findBoundViews { it.id == id }
+                    var shown = 0
+                    bound.forEach { (view, message) ->
+                        if (WeChatMessageViewApi.getBoundMessage(view)?.id == id &&
+                            showLabel(view, message, result)) shown++
+                    }
+                    if (loggedResultVersion != version) {
+                        loggedResultVersion = version
+                        WeLogger.i(TAG, "first result bound=${bound.size}, shown=$shown, row=${bound.firstOrNull()?.first?.javaClass?.simpleName ?: "none"}")
                     }
                 }
             }
@@ -352,7 +398,7 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         }
     }
 
-    private fun showLabel(row: View, message: MessageInfo, label: String): Boolean {
+    private fun showLabel(row: View, message: MessageInfo, result: JevResult): Boolean {
         val parent = row as? ViewGroup ?: return false
         val edge = TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP, 12f, row.resources.displayMetrics,
@@ -390,8 +436,14 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             includeFontPadding = false
         }
-        badge.text = label
-        badge.setTextColor(if (row.context.isDarkMode) 0xFFB9C4D1.toInt() else 0xFF536678.toInt())
+        val dark = row.context.isDarkMode
+        badge.text = result.label
+        badge.setTextColor(when {
+            result.warning -> if (dark) 0xFFE0A15A.toInt() else 0xFFC26A1B.toInt()
+            dark -> 0xFFB9C4D1.toInt()
+            else -> 0xFF536678.toInt()
+        })
+        badge.setOnClickListener { showPanel(it.context, message, result) }
         if (existing == null) parent.addView(badge, params) else badge.layoutParams = params
         return true
     }
@@ -401,6 +453,86 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         (badge.parent as? ViewGroup)?.removeView(badge)
     }
 
+    private fun reanalyzeChat(talker: String) {
+        results.clear()
+        pending.clear()
+        invalidate()
+        WeChatMessageViewApi.findBoundViews { it.talker == talker }.forEach { (view, message) ->
+            clearLabel(view)
+            scheduleRendered(message)
+        }
+    }
+
+    private fun showPanel(context: Context, message: MessageInfo, result: JevResult) {
+        val talker = message.talker
+        showComposeDialog(context) {
+            var relation by remember { mutableStateOf(relationOf(talker)) }
+            AlertDialogContent(
+                title = { Text("Jev 分析") },
+                text = {
+                    Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                        Text("${result.target.from}：${result.target.text}", maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Column(Modifier.padding(vertical = 12.dp)) {
+                            when (result) {
+                                is JevIncoming -> {
+                                    ScoreRow("阴阳怪气", result.sarcasm)
+                                    ScoreRow("调侃", result.teasing)
+                                    result.emotions.take(3).forEach { (name, p) -> ScoreRow(name, p) }
+                                    ScoreRow("敷衍", result.perfunctory)
+                                    ScoreRow("网络黑话", result.slang)
+                                }
+                                is JevOutgoing -> {
+                                    Text("总评 ${result.grade}", Modifier.padding(bottom = 4.dp))
+                                    ScoreRow("回应", result.respond)
+                                    ScoreRow("温度", result.warmth)
+                                    ScoreRow("语气", result.tone)
+                                    ScoreRow("显得冷淡", result.cold)
+                                    ScoreRow("像阴阳怪气", result.sarcastic)
+                                }
+                            }
+                        }
+                        Text(
+                            "${result.model} · ${result.tokens} token" +
+                                if (result.afterCount > 0) " · 参考了之后 ${result.afterCount} 条回复" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        OutlinedTextField(
+                            value = relation,
+                            onValueChange = { relation = it.take(100) },
+                            label = { Text("这个聊天的背景（如：对方是我妈）") },
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        if (relation.trim() != relationOf(talker)) {
+                            WePrefs.putString(relationKey(talker), relation.trim())
+                            reanalyzeChat(talker)
+                        }
+                        onDismiss()
+                    }) { Text(stringResource(R.string.dialog_confirm)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        results.remove(message.id)
+                        scheduleRendered(message)
+                        onDismiss()
+                    }) { Text("重新分析") }
+                },
+            )
+        }
+    }
+
+    @Composable
+    private fun ScoreRow(name: String, value: Double) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(name, Modifier.width(80.dp), style = MaterialTheme.typography.bodyMedium)
+            LinearProgressIndicator(progress = { value.toFloat() }, modifier = Modifier.weight(1f).height(6.dp))
+            Text(percent(value), Modifier.width(48.dp), textAlign = TextAlign.End, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+
     override fun onClick(context: ComponentActivity) {
         showComposeDialog(context) {
             var draft by remember { mutableStateOf(apiKey) }
@@ -408,7 +540,7 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
             var latestDraft by remember { mutableStateOf(latestCount.toString()) }
             var renderDraft by remember { mutableStateOf(renderOnScroll) }
             var batchDraft by remember { mutableStateOf(batchLimit.toString()) }
-            var promptDraft by remember { mutableStateOf(prompt) }
+            var noteDraft by remember { mutableStateOf(note) }
             AlertDialogContent(
                 title = { Text(stringResource(R.string.feature_jev_analysis_name)) },
                 text = {
@@ -453,8 +585,8 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         )
                         OutlinedTextField(
-                            value = promptDraft,
-                            onValueChange = { promptDraft = it.take(300) },
+                            value = noteDraft,
+                            onValueChange = { noteDraft = it.take(300) },
                             label = { Text(stringResource(R.string.chat_jev_prompt)) },
                             minLines = 2,
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -467,15 +599,15 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                         val nextContext = contextDraft.toIntOrNull()?.coerceIn(0, 200) ?: contextCount
                         val nextLatest = latestDraft.toIntOrNull()?.coerceIn(1, 200) ?: latestCount
                         val nextBatch = batchDraft.toIntOrNull()?.coerceIn(1, 20) ?: batchLimit
-                        val nextPrompt = promptDraft.trim()
-                        val contentChanged = apiKey != nextKey || contextCount != nextContext || prompt != nextPrompt
+                        val nextNote = noteDraft.trim()
+                        val contentChanged = apiKey != nextKey || contextCount != nextContext || note != nextNote
                         val windowChanged = latestCount != nextLatest || renderOnScroll != renderDraft
                         apiKey = nextKey
                         contextCount = nextContext
                         latestCount = nextLatest
                         renderOnScroll = renderDraft
                         batchLimit = nextBatch
-                        prompt = nextPrompt
+                        note = nextNote
                         if (contentChanged || windowChanged) resetWindow()
                         if (contentChanged) {
                             lastKey = nextKey

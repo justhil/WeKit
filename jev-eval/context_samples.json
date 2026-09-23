@@ -1,0 +1,115 @@
+[
+  {"id": "c01a", "pair": "挺好的，你去吧", "element": "较早的上下文", "messages": [
+    {"from": "我", "text": "你生日那天我实在走不开，对不起", "t": -58},
+    {"from": "对方", "text": "你每次都这样", "t": -57},
+    {"from": "我", "text": "下次一定补上", "t": -56},
+    {"from": "对方", "text": "上次你也是这么说的", "t": -55},
+    {"from": "我", "text": "别生气了好不好", "t": -50},
+    {"from": "对方", "text": "算了", "t": -45},
+    {"from": "我", "text": "晚上吃什么", "t": -30},
+    {"from": "对方", "text": "都可以", "t": -29},
+    {"from": "我", "text": "那吃火锅？", "t": -28},
+    {"from": "对方", "text": "行", "t": -27},
+    {"from": "我", "text": "我订好位置了", "t": -20},
+    {"from": "对方", "text": "好", "t": -19},
+    {"from": "我", "text": "对了，我下周要出差一周", "t": -5}],
+   "target": {"from": "对方", "text": "挺好的，你去吧"}, "gold": {"irony": "阴阳怪气"}},
+  {"id": "c01b", "pair": "挺好的，你去吧", "element": "较早的上下文", "messages": [
+    {"from": "我", "text": "我升职了！", "t": -58},
+    {"from": "对方", "text": "真的吗！太棒了", "t": -57},
+    {"from": "我", "text": "晚上庆祝一下？", "t": -56},
+    {"from": "对方", "text": "必须的", "t": -55},
+    {"from": "我", "text": "你最好了", "t": -50},
+    {"from": "对方", "text": "那当然", "t": -45},
+    {"from": "我", "text": "晚上吃什么", "t": -30},
+    {"from": "对方", "text": "都可以", "t": -29},
+    {"from": "我", "text": "那吃火锅？", "t": -28},
+    {"from": "对方", "text": "行", "t": -27},
+    {"from": "我", "text": "我订好位置了", "t": -20},
+    {"from": "对方", "text": "好", "t": -19},
+    {"from": "我", "text": "对了，我下周要出差一周", "t": -5}],
+   "target": {"from": "对方", "text": "挺好的，你去吧"}, "gold": {"irony": "真心"}},
+  {"id": "c02a", "element": "旧对话干扰", "messages": [
+    {"from": "我", "text": "你为什么又不回我消息", "t": -2900},
+    {"from": "对方", "text": "我在忙", "t": -2899},
+    {"from": "我", "text": "你永远都在忙", "t": -2898},
+    {"from": "对方", "text": "你能不能别闹了", "t": -2897},
+    {"from": "我", "text": "行，你忙吧", "t": -2890},
+    {"from": "我", "text": "今天天气真好", "t": -3}],
+   "target": {"from": "对方", "text": "是啊，适合出去走走"}, "gold": {"irony": "真心"}},
+  {"id": "c03a", "pair": "行，算你守信", "element": "非文字消息", "messages": [
+    {"from": "对方", "text": "你说今天还我钱的", "t": -30},
+    {"from": "我", "type": "transfer", "t": -5}],
+   "target": {"from": "对方", "text": "行，算你守信"}, "gold": {"irony": "真心"}},
+  {"id": "c03b", "pair": "行，算你守信", "element": "非文字消息", "messages": [
+    {"from": "对方", "text": "你说今天还我钱的", "t": -30},
+    {"from": "我", "text": "明天一定还", "t": -5}],
+   "target": {"from": "对方", "text": "行，算你守信"}, "gold": {"irony": "阴阳怪气"}},
+  {"id": "c05a", "pair": "真厉害", "element": "引用回复", "messages": [
+    {"from": "我", "text": "周末去哪玩？", "t": -10},
+    {"from": "对方", "text": "还没想好", "t": -9}],
+   "target": {"from": "对方", "text": "真厉害", "quote": {"from": "我", "text": "我把项目搞砸了，被老板当众批评了"}}, "gold": {"irony": "阴阳怪气"}},
+  {"id": "c05b", "pair": "真厉害", "element": "引用回复", "messages": [
+    {"from": "我", "text": "周末去哪玩？", "t": -10},
+    {"from": "对方", "text": "还没想好", "t": -9}],
+   "target": {"from": "对方", "text": "真厉害", "quote": {"from": "我", "text": "我拿到了年度优秀员工"}}, "gold": {"irony": "真心"}},
+  {"id": "c06a", "pair": "这都能搞丢", "element": "两人关系", "relationship": "对方是我认识十年的死党，平时说话很损", "messages": [
+    {"from": "我", "text": "我把PPT文件弄丢了，明天还要汇报", "t": -2}],
+   "target": {"from": "对方", "text": "你可真行啊，这都能搞丢"}, "gold": {"irony": "调侃"}},
+  {"id": "c06b", "pair": "这都能搞丢", "element": "两人关系", "relationship": "对方是我的部门领导", "messages": [
+    {"from": "我", "text": "我把PPT文件弄丢了，明天还要汇报", "t": -2}],
+   "target": {"from": "对方", "text": "你可真行啊，这都能搞丢"}, "gold": {"irony": "阴阳怪气"}},
+  {"id": "c07a", "pair": "大忙人", "element": "两人关系", "relationship": "对方是我的死党，经常互损", "messages": [
+    {"from": "我", "text": "抱歉，这周都没空见面", "t": -3}],
+   "target": {"from": "对方", "text": "您可真是个大忙人"}, "gold": {"irony": "调侃"}},
+  {"id": "c07b", "pair": "大忙人", "element": "两人关系", "relationship": "对方是我女朋友", "messages": [
+    {"from": "我", "text": "抱歉，这周都没空见面", "t": -3}],
+   "target": {"from": "对方", "text": "您可真是个大忙人"}, "gold": {"irony": "阴阳怪气"}},
+  {"id": "c08a", "pair": "发型", "element": "之后的反应", "messages": [
+    {"from": "我", "text": "我今天换了个新发型", "t": -5}],
+   "target": {"from": "对方", "text": "你这发型挺有个性啊"},
+   "after": [{"from": "我", "text": "谢谢！理发师推荐的", "t": 1}, {"from": "对方", "text": "很适合你！", "t": 2}], "gold": {"irony": "真心"}},
+  {"id": "c08b", "pair": "发型", "element": "之后的反应", "messages": [
+    {"from": "我", "text": "我今天换了个新发型", "t": -5}],
+   "target": {"from": "对方", "text": "你这发型挺有个性啊"},
+   "after": [{"from": "我", "text": "你什么意思？", "t": 1}, {"from": "对方", "text": "没什么意思，就是很有个性", "t": 2}], "gold": {"irony": "阴阳怪气"}},
+  {"id": "c09a", "pair": "辛苦了🙂", "element": "之后的反应", "messages": [
+    {"from": "对方", "text": "我今天加班到十点，好累", "t": -5}],
+   "target": {"from": "我", "text": "辛苦了🙂"},
+   "after": [{"from": "对方", "text": "你这个表情什么意思？", "t": 1}], "gold": {"risk_yygq": true}},
+  {"id": "c09b", "pair": "辛苦了🙂", "element": "之后的反应", "messages": [
+    {"from": "对方", "text": "我今天加班到十点，好累", "t": -5}],
+   "target": {"from": "我", "text": "辛苦了🙂"},
+   "after": [{"from": "对方", "text": "嗯嗯谢谢～你也早点睡", "t": 1}], "gold": {"risk_yygq": false}},
+  {"id": "c10a", "pair": "坦白", "element": "回复间隔", "messages": [
+    {"from": "对方", "text": "我刚跟家里人说了我要辞职创业，好紧张", "t": -1}],
+   "target": {"from": "我", "text": "怎么说？他们什么反应"}, "gold": {"risk_cold": false}},
+  {"id": "c10b", "pair": "坦白", "element": "回复间隔", "messages": [
+    {"from": "对方", "text": "我刚跟家里人说了我要辞职创业，好紧张", "t": -600}],
+   "target": {"from": "我", "text": "怎么说？他们什么反应"}, "gold": {"risk_cold": true}},
+  {"id": "c11", "element": "对照：长对话", "messages": [
+    {"from": "我", "text": "五一去哪玩想好了吗", "t": -95},
+    {"from": "对方", "text": "想去杭州", "t": -94},
+    {"from": "我", "text": "好啊，西湖一直想去", "t": -93},
+    {"from": "对方", "text": "那我们坐高铁还是开车？", "t": -90},
+    {"from": "我", "text": "高铁吧，开车太累", "t": -88},
+    {"from": "对方", "text": "行，我来看票", "t": -85},
+    {"from": "对方", "text": "早上八点那班还有票", "t": -70},
+    {"from": "我", "text": "可以，就那班", "t": -69},
+    {"from": "对方", "text": "酒店你看一下？", "t": -60},
+    {"from": "我", "text": "我找了个湖边的民宿，评价挺好", "t": -50},
+    {"from": "对方", "text": "发我看看", "t": -49},
+    {"from": "我", "type": "image", "t": -48},
+    {"from": "对方", "text": "好看！就这个", "t": -45},
+    {"from": "我", "text": "那我订了", "t": -44},
+    {"from": "对方", "text": "嗯嗯", "t": -40},
+    {"from": "我", "text": "第一天去灵隐寺，第二天游西湖？", "t": -30},
+    {"from": "对方", "text": "可以，再去吃个片儿川", "t": -28},
+    {"from": "我", "text": "哈哈你就惦记吃", "t": -27},
+    {"from": "对方", "text": "那必须", "t": -26},
+    {"from": "我", "text": "明天下班一起去买点路上吃的？", "t": -10}],
+   "target": {"from": "对方", "text": "好呀，明天见"}, "gold": {"irony": "真心"}},
+  {"id": "c12", "element": "对照：本身明显", "messages": [
+    {"from": "我", "text": "我又忘带钥匙了，你能回来开下门吗", "t": -2}],
+   "target": {"from": "对方", "text": "行啊，反正我就是专门给你收拾烂摊子的"}, "gold": {"irony": "阴阳怪气"}}
+]
