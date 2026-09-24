@@ -55,18 +55,18 @@ jobs:
       - name: Test Jev
         run: ./gradlew :app:testStandardDebugUnitTest --tests 'dev.ujhhgtg.wekit.features.items.chat.Jev*'
 
-      - name: Build standard debug APK
+      - name: Build standard release beta APK
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./x build --flavor standard
+        run: ./x build --release --flavor standard
 
       - name: Verify APK
-        run: python3 .github/scripts/verify-dual-apk.py --check-installer app/build/outputs/apk/standard/debug/app-standard-debug.apk
+        run: python3 .github/scripts/verify-dual-apk.py --check-installer app/build/outputs/apk/standard/release/app-standard-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: wekit-jev-standard-debug
-          path: app/build/outputs/apk/standard/debug/app-standard-debug.apk
+          name: wekit-jev-standard-release-beta
+          path: app/build/outputs/apk/standard/release/app-standard-release.apk
           if-no-files-found: error
           retention-days: 14
