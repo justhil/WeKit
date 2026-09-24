@@ -34,6 +34,17 @@ class JevWindowTest {
         assertEquals(listOf("最早", "再上一条"), texts(state(jobs[1]), "conversation"))
         assertEquals(listOf("[图片]", "最新"), texts(state(jobs[1]), "after"))
         assertEquals(2, jobs[1].afterCount)
+        assertEquals(listOf(4L, 5L), jobs[1].afterIds)
+    }
+
+    @Test fun allLaterMessagesAreIncludedForRecentTargets() {
+        val rows = (10L downTo 1L).map { message(it, "消息$it") }
+        val jobs = JevWindow.plan(rows, 10, 0, emptyMap(), "", "")
+        val newest = jobs.first { it.id == 10L }
+        assertEquals(0, newest.afterCount)
+        assertFalse(state(newest).containsKey("after"))
+        val oldest = jobs.last { it.id == 1L }
+        assertEquals((2L..10L).toList(), oldest.afterIds)
     }
 
     @Test fun conversationStopsAtLongGapButKeepsTheMessageBeingAnswered() {
@@ -89,11 +100,87 @@ class JevWindowTest {
     @Test fun renderedModeAnalyzesOnlyVisibleTextMessages() {
         val rows = listOf(message(8, "现在"), message(7, "", MessageType.LINK.code),
             message(6, "刚才"), message(5, "再说一次"), message(4, "更早"))
-        val jobs = JevWindow.planVisible(rows, setOf(8L, 7L, 5L), 2, emptyMap(), "", "")
+        val jobs = JevWindow.planVisible(rows, setOf(8L, 7L, 5L), 2, 8, 8, emptyMap(), "", "")
         assertEquals(listOf(8L, 5L), jobs.map { it.id })
         assertEquals(listOf("刚才", "[链接]"), texts(state(jobs[0]), "conversation"))
         assertEquals(listOf("更早"), texts(state(jobs[1]), "conversation"))
         assertEquals(listOf("刚才", "[链接]", "现在"), texts(state(jobs[1]), "after"))
+    }
+
+    @Test fun should_include_only_same_sender_after_when_evaluating_group_member() {
+        val rows = listOf(
+            WeMessage(5, 5, "team@chatroom", "wxid_bob:\n嗯", MessageType.TEXT.code, 5 * minute, 0),
+            WeMessage(4, 4, "team@chatroom", "wxid_anna:\n好", MessageType.TEXT.code, 4 * minute, 0),
+            WeMessage(3, 3, "team@chatroom", "收到", MessageType.TEXT.code, 3 * minute, 1),
+            WeMessage(2, 2, "team@chatroom", "wxid_bob:\n我来", MessageType.TEXT.code, 2 * minute, 0),
+            WeMessage(1, 1, "team@chatroom", "wxid_anna:\n谁来？", MessageType.TEXT.code, minute, 0),
+        )
+        val job = JevWindow.plan(rows, 5, 2, emptyMap(), "", "").first { it.id == 2L }
+        assertEquals(listOf(5L), job.afterIds)
+        assertEquals(listOf("嗯"), texts(state(job), "after"))
+        assertEquals(listOf("谁来？"), texts(state(job), "conversation"))
+    }
+
+    @Test fun should_include_own_followups_and_adjacent_group_replies_after_outgoing() {
+        val rows = listOf(
+            WeMessage(6, 6, "team@chatroom", "wxid_anna:\n行", MessageType.TEXT.code, 6 * minute, 0),
+            WeMessage(5, 5, "team@chatroom", "再确认一下", MessageType.TEXT.code, 5 * minute, 1),
+            WeMessage(4, 4, "team@chatroom", "wxid_carl:\n别的事", MessageType.TEXT.code, 4 * minute, 0),
+            WeMessage(3, 3, "team@chatroom", "wxid_bob:\n可以", MessageType.TEXT.code, 3 * minute, 0),
+            WeMessage(2, 2, "team@chatroom", "要一起吗", MessageType.TEXT.code, 2 * minute, 1),
+            WeMessage(1, 1, "team@chatroom", "wxid_anna:\n下午", MessageType.TEXT.code, minute, 0),
+        )
+        val job = JevWindow.plan(rows, 6, 2, emptyMap(), "", "").first { it.id == 2L }
+        assertEquals(listOf(3L, 5L, 6L), job.afterIds)
+        assertEquals(listOf("可以", "再确认一下", "行"), texts(state(job), "after"))
+    }
+
+    @Test fun should_include_quoted_group_reply_even_after_adjacent_message() {
+        val rows = listOf(
+            WeMessage(4, 4, "team@chatroom", "wxid_anna:\n<msg/>", MessageType.QUOTE.code, 4 * minute, 0),
+            WeMessage(3, 3, "team@chatroom", "wxid_carl:\n换个话题", MessageType.TEXT.code, 3 * minute, 0),
+            WeMessage(2, 2, "team@chatroom", "一起吗", MessageType.TEXT.code, 2 * minute, 1),
+            WeMessage(1, 1, "team@chatroom", "wxid_bob:\n明天", MessageType.TEXT.code, minute, 0),
+        )
+        val quotes = mapOf(4L to JevQuote("可以", fromSelf = true, sender = "self", text = "一起吗"))
+        val job = JevWindow.plan(rows, 4, 0, quotes, "", "").first { it.id == 2L }
+        assertEquals(listOf(3L, 4L), job.afterIds)
+        assertEquals(listOf("换个话题", "可以"), texts(state(job), "after"))
+    }
+
+    @Test fun should_count_both_sides_together_in_before_window() {
+        val rows = listOf(message(4, "目标"), message(3, "我先说"), message(2, "对方回"), message(1, "很早"))
+        val state = state(JevWindow.plan(rows, 1, 2, emptyMap(), "", "").single())
+        assertEquals(listOf("对方回", "我先说"), texts(state, "conversation"))
+    }
+
+    @Test fun should_select_refresh_targets_by_chat_position_not_by_sender_count() {
+        val rows = (10L downTo 1L).map { message(it, "消息$it") }
+        val jobs = JevWindow.planRefresh(rows, 3, 4, 2, emptyMap(), "", "")
+        assertEquals(listOf(10L, 9L, 8L), jobs.map { it.id })
+        assertEquals(listOf(10L), JevWindow.planRefresh(rows, 0, 0, 0, emptyMap(), "", "").map { it.id })
+        assertEquals(listOf(10L, 9L, 8L),
+            JevWindow.planRefresh(rows, 0, 0, 0, emptyMap(), "", "", newCount = 3).map { it.id })
+    }
+
+    @Test fun should_include_both_sides_from_the_entire_refresh_window() {
+        val rows = (5L downTo 1L).map { message(it, "消息$it") }
+        val job = JevWindow.planRefresh(rows, 3, 3, 0, emptyMap(), "", "").first { it.id == 3L }
+        assertEquals(listOf(4L, 5L), job.afterIds)
+        assertEquals(listOf("消息4", "消息5"), texts(state(job), "after"))
+    }
+
+    @Test fun should_include_all_later_messages_within_refresh_positions() {
+        val rows = (8L downTo 1L).map { message(it, "消息$it") }
+        val job = JevWindow.planRefresh(rows, 8, 8, 0, emptyMap(), "", "").first { it.id == 1L }
+        assertEquals((2L..8L).toList(), job.afterIds)
+    }
+
+    @Test fun should_omit_unrelated_recent_tail_when_visible_target_is_outside_refresh_window() {
+        val rows = listOf(10L, 9L, 8L, 7L, 1L).map { message(it, "消息$it") }
+        val job = JevWindow.planVisible(rows, setOf(1L), 0, 3, 3, emptyMap(), "", "").single()
+        assertTrue(job.afterIds.isEmpty())
+        assertFalse(state(job).containsKey("after"))
     }
 
     @Test fun noTextTargetsProduceNoRequests() {

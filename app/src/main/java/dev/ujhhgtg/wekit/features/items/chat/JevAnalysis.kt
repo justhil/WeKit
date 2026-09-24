@@ -1,5 +1,6 @@
 package dev.ujhhgtg.wekit.features.items.chat
 
+import android.content.ContentValues
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import dev.ujhhgtg.wekit.R
 import dev.ujhhgtg.wekit.features.api.core.WeApi
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
+import dev.ujhhgtg.wekit.features.api.core.WeDatabaseListenerApi
 import dev.ujhhgtg.wekit.features.api.core.models.MessageInfo
 import dev.ujhhgtg.wekit.features.api.core.models.MessageType
 import dev.ujhhgtg.wekit.features.api.core.models.WeMessage
@@ -72,7 +74,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListener,
-    WeChatMessageViewApi.IMessageViewLifecycleListener {
+    WeChatMessageViewApi.IMessageViewLifecycleListener, WeDatabaseListenerApi.IInsertListener {
     override val technicalId = "Jev 消息分析"
     override val nameRes = R.string.feature_jev_analysis_name
     override val descriptionRes = R.string.feature_jev_analysis_description
@@ -92,7 +94,11 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
     private val queue = ArrayDeque<Pair<JevJob, Int>>()
     private val renderCandidates = linkedMapOf<Long, Long>()
     private val loadingCandidates = mutableMapOf<Long, Int>()
+    private val checkedRendered = hashSetOf<Long>()
     private var renderScheduled = false
+    private var refreshScheduled = false
+    private var refreshObserved = 0
+    private var refreshNeeded = false
     private var activeTalker: String? = null
     private var running = 0
     private var loggedResultVersion = -1
@@ -101,6 +107,8 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
     private var windowVersion = 0
     private var apiKey by prefOption("jev_api_key", "")
     private var contextCount by prefOption("jev_context_count", 30)
+    private var selfRefreshCount by prefOption("jev_self_refresh_count", 20)
+    private var otherRefreshCount by prefOption("jev_other_refresh_count", 20)
     private var latestCount by prefOption("jev_latest_count", 20)
     private var renderOnScroll by prefOption("jev_render_on_scroll", false)
     private var batchLimit by prefOption("jev_batch_limit", 4)
@@ -111,9 +119,11 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         lastKey = apiKey.trim()
         WeChatMessageViewApi.addListener(this)
         WeChatMessageViewApi.addLifecycleListener(this)
+        WeDatabaseListenerApi.addListener(this)
     }
 
     override fun onDisable() {
+        WeDatabaseListenerApi.removeListener(this)
         WeChatMessageViewApi.removeListener(this)
         WeChatMessageViewApi.removeLifecycleListener(this)
         WeChatMessageViewApi.findBoundViews { true }.forEach { (view, _) -> clearLabel(view) }
@@ -125,6 +135,10 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         invalidate()
         activeChat = null
         activeTalker = null
+        checkedRendered.clear()
+        refreshNeeded = false
+        refreshScheduled = false
+        refreshObserved = 0
     }
 
     private fun invalidate() {
@@ -141,7 +155,27 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         queue.clear()
     }
 
-    private fun needsAnalysis(job: JevJob) = (results[job.id]?.afterCount ?: -1) < job.afterCount
+    private fun needsAnalysis(job: JevJob) = results[job.id]?.afterIds != job.afterIds
+
+    override fun onInsert(table: String, values: ContentValues) {
+        if (table != "message") return
+        val talker = values.getAsString("talker") ?: return
+        mainHandler.post {
+            if (!isActive || talker != activeTalker || apiKey.isBlank()) return@post
+            checkedRendered.clear()
+            refreshObserved = (refreshObserved + 1).coerceAtMost(200)
+            if (refreshScheduled) return@post
+            refreshScheduled = true
+            val version = windowVersion
+            mainHandler.postDelayed({
+                if (version != windowVersion) return@postDelayed
+                refreshScheduled = false
+                val newCount = refreshObserved
+                refreshObserved = 0
+                loadLatest(talker, refresh = true, newCount = newCount)
+            }, 120)
+        }
+    }
 
     private fun relationKey(talker: String) = "jev_relation_$talker"
 
@@ -176,34 +210,47 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
             if (view.isAttachedToWindow) scheduleRendered(message)
             return
         }
+        loadLatest(message.talker)
+    }
+
+    private fun loadLatest(talker: String, refresh: Boolean = false, newCount: Int = 1) {
         val version = windowVersion
-        val talker = message.talker
-        val count = latestCount.coerceIn(1, 200)
+        val key = apiKey.trim()
+        val count = maxOf(latestCount, selfRefreshCount, otherRefreshCount, newCount).coerceIn(1, 200)
         val historyCount = contextCount.coerceIn(0, 200)
         val relation = relationOf(talker)
         val extra = note
         windowLoader.execute {
-            val jobs = runCatching {
-                if (WeDatabaseApi.isReady) {
-                    val rows = WeDatabaseApi.getMessages(talker.replace("'", "''"), pageSize = count + historyCount)
-                    JevWindow.plan(rows, count, historyCount, decodeQuotes(rows), relation, extra).also {
-                        WeLogger.i(TAG, "window loaded=${rows.size}, planned=${it.size}")
-                    }
-                } else {
-                    WeLogger.w(TAG, "database not ready for chat window")
-                    emptyList()
-                }
+            val rows = runCatching {
+                if (WeDatabaseApi.isReady) WeDatabaseApi.getMessages(talker.replace("'", "''"),
+                    pageSize = count.coerceIn(1, 200) + historyCount)
+                else emptyList()
             }.onFailure { WeLogger.w(TAG, "failed to read chat window (${it.javaClass.simpleName})") }
+                .getOrDefault(emptyList()).sortedWith(
+                    compareByDescending<WeMessage> { it.createTime }.thenByDescending { it.msgId })
+            val jobs = runCatching {
+                JevWindow.planRefresh(rows, selfRefreshCount, otherRefreshCount, historyCount,
+                    decodeQuotes(rows), relation, extra, if (refresh) newCount else latestCount)
+            }.onFailure { WeLogger.w(TAG, "failed to plan chat window (${it.javaClass.simpleName})") }
                 .getOrDefault(emptyList())
+            val initialIds = rows.take(latestCount.coerceIn(1, 200)).mapTo(hashSetOf()) { it.msgId }
             mainHandler.post {
                 if (version != windowVersion || !isActive || apiKey.trim() != key) return@post
                 jobs.forEach { job ->
-                    if (needsAnalysis(job) && !pending.containsKey(job.id)) {
-                        pending[job.id] = version
-                        queue.addLast(job to version)
+                    if (!refresh && job.id !in initialIds && job.id !in results) return@forEach
+                    if (needsAnalysis(job)) {
+                        if (pending.containsKey(job.id)) refreshNeeded = true
+                        else {
+                            pending[job.id] = version
+                            if (queue.size >= 50) {
+                                val (dropped, oldVersion) = queue.removeLast()
+                                if (pending[dropped.id] == oldVersion) pending.remove(dropped.id)
+                            }
+                            queue.addLast(job to version)
+                        }
                     }
                 }
-                WeLogger.i(TAG, "window queued=${queue.size}, cached=${jobs.size - queue.size}, running=$running")
+                WeLogger.i(TAG, "window loaded=${rows.size}, planned=${jobs.size}, queued=${queue.size}")
                 drain(key)
             }
         }
@@ -215,8 +262,8 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
 
     private fun scheduleRendered(message: MessageInfo) {
         val id = message.id
-        if (!isActive || id <= 0 || message.type?.isText != true || pending.containsKey(id) || apiKey.isBlank() ||
-            (results[id]?.afterCount ?: -1) >= JevWindow.AFTER) return
+        if (!isActive || id <= 0 || message.type?.isText != true || pending.containsKey(id) || apiKey.isBlank()) return
+        if (results.containsKey(id) && id in checkedRendered) return
         val version = windowVersion
         if (renderCandidates.size >= 32) {
             val dropped = renderCandidates.keys.first()
@@ -236,6 +283,7 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                 val talker = activeTalker ?: return@postDelayed
                 val key = apiKey.trim()
                 val historyCount = contextCount.coerceIn(0, 200)
+                val tail = maxOf(selfRefreshCount, otherRefreshCount, 1).coerceIn(1, 200)
                 val relation = relationOf(talker)
                 val extra = note
                 windowLoader.execute {
@@ -246,13 +294,14 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                                 compareByDescending<Map.Entry<Long, Long>> { it.value }.thenByDescending { it.key }
                             )) {
                                 if (candidate in rows) continue
-                                loadAround(talker, time, candidate, historyCount + selected.size)
+                                loadAround(talker, time, candidate, historyCount + selected.size, tail)
                                     .forEach { rows[it.msgId] = it }
                             }
                             val sorted = rows.values.sortedWith(
                                 compareByDescending<WeMessage> { it.createTime }.thenByDescending { it.msgId }
                             )
-                            JevWindow.planVisible(sorted, selected.keys, historyCount, decodeQuotes(sorted), relation, extra)
+                            JevWindow.planVisible(sorted, selected.keys, historyCount, selfRefreshCount, otherRefreshCount,
+                                decodeQuotes(sorted), relation, extra)
                         }
                     }.onFailure { WeLogger.w(TAG, "failed to read rendered messages (${it.javaClass.simpleName})") }
                         .getOrDefault(emptyList())
@@ -265,13 +314,18 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                                 WeLogger.i(TAG, "render first batch selected=${selected.size}, planned=${jobs.size}")
                             }
                             jobs.forEach { job ->
-                                if (pending[job.id] == version && needsAnalysis(job)) {
-                                    if (queue.size >= 50) {
-                                        val (dropped, oldVersion) = queue.removeFirst()
-                                        if (pending[dropped.id] == oldVersion) pending.remove(dropped.id)
+                                if (pending[job.id] == version) {
+                                    if (needsAnalysis(job)) {
+                                        if (queue.size >= 50) {
+                                            val (dropped, oldVersion) = queue.removeFirst()
+                                            if (pending[dropped.id] == oldVersion) pending.remove(dropped.id)
+                                        }
+                                        queue.addLast(job to version)
+                                        queued += job.id
+                                    } else {
+                                        if (checkedRendered.size >= 2000) checkedRendered.clear()
+                                        checkedRendered += job.id
                                     }
-                                    queue.addLast(job to version)
-                                    queued += job.id
                                 }
                             }
                             drain(key)
@@ -284,28 +338,32 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         }
     }
 
-    // 目标消息之后最多 AFTER 条、之前最多 before 条，所有类型，按时间从新到旧
-    private fun loadAround(talker: String, time: Long, msgId: Long, before: Int): List<WeMessage> {
-        fun query(where: String, order: String, limit: Int) = WeDatabaseApi.executeQuery("""
-            SELECT msgId, msgSvrId, talker, content, type, createTime, isSend
-            FROM message
-            WHERE talker = ? AND ($where)
-            ORDER BY createTime $order, msgId $order
-            LIMIT ?
-        """.trimIndent(), arrayOf(talker, time, time, msgId, limit)).map { row ->
-            fun long(key: String) = row[key] as? Long ?: 0L
-            WeMessage(
-                msgId = long("msgId"),
-                msgSvrId = long("msgSvrId"),
-                talker = row["talker"].toString(),
-                content = row["content"].toString(),
-                typeCode = long("type").toInt(),
-                createTime = long("createTime"),
-                isSend = long("isSend").toInt(),
-            )
+    // 最新刷新范围内的消息（事后视角）+ 目标及之前最多 before+1 条，按时间从新到旧
+    private fun loadAround(talker: String, time: Long, msgId: Long, before: Int, tail: Int): List<WeMessage> {
+        fun query(where: String?, order: String, limit: Int): List<WeMessage> {
+            val args = if (where == null) arrayOf<Any>(talker, limit) else arrayOf<Any>(talker, time, time, msgId, limit)
+            val condition = where?.let { "AND ($it)" } ?: ""
+            return WeDatabaseApi.executeQuery("""
+                SELECT msgId, msgSvrId, talker, content, type, createTime, isSend
+                FROM message
+                WHERE talker = ? $condition
+                ORDER BY createTime $order, msgId $order
+                LIMIT ?
+            """.trimIndent(), args).map { row ->
+                fun long(key: String) = row[key] as? Long ?: 0L
+                WeMessage(
+                    msgId = long("msgId"),
+                    msgSvrId = long("msgSvrId"),
+                    talker = row["talker"].toString(),
+                    content = row["content"].toString(),
+                    typeCode = long("type").toInt(),
+                    createTime = long("createTime"),
+                    isSend = long("isSend").toInt(),
+                )
+            }
         }
-        return query("createTime > ? OR (createTime = ? AND msgId > ?)", "ASC", JevWindow.AFTER).asReversed() +
-            query("createTime < ? OR (createTime = ? AND msgId <= ?)", "DESC", before + 1)
+        val tailRows = if (tail > 0) query(null, "DESC", tail + 1) else emptyList()
+        return tailRows + query("createTime < ? OR (createTime = ? AND msgId <= ?)", "DESC", before + 1)
     }
 
     private fun decodeQuotes(rows: List<WeMessage>): Map<Long, JevQuote> {
@@ -334,7 +392,7 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         while (running < batchLimit.coerceIn(1, 20) && queue.isNotEmpty()) {
             val (job, version) = queue.removeFirst()
             if (pending[job.id] != version) continue
-            if (renderOnScroll && version == windowVersion &&
+            if (job.visibleOnly && version == windowVersion &&
                 WeChatMessageViewApi.findBoundViews { it.id == job.id }
                     .none { (view, _) -> view.isAttachedToWindow }) {
                 pending.remove(job.id)
@@ -394,7 +452,13 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                     }
                 }
             }
-            if (isActive) drain(apiKey.trim())
+            if (isActive) {
+                if (refreshNeeded && pending.isEmpty() && activeTalker != null && apiKey.isNotBlank()) {
+                    refreshNeeded = false
+                    loadLatest(activeTalker!!, refresh = true)
+                }
+                drain(apiKey.trim())
+            }
         }
     }
 
@@ -459,8 +523,9 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         invalidate()
         WeChatMessageViewApi.findBoundViews { it.talker == talker }.forEach { (view, message) ->
             clearLabel(view)
-            scheduleRendered(message)
+            if (renderOnScroll) scheduleRendered(message)
         }
+        if (!renderOnScroll) loadLatest(talker)
     }
 
     private fun showPanel(context: Context, message: MessageInfo, result: JevResult) {
@@ -493,7 +558,7 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                         }
                         Text(
                             "${result.model} · ${result.tokens} token" +
-                                if (result.afterCount > 0) " · 参考了之后 ${result.afterCount} 条回复" else "",
+                                if (result.afterCount > 0) " · 参考了之后 ${result.afterCount} 条相关消息" else "",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         OutlinedTextField(
@@ -537,6 +602,8 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
         showComposeDialog(context) {
             var draft by remember { mutableStateOf(apiKey) }
             var contextDraft by remember { mutableStateOf(contextCount.toString()) }
+            var selfRefreshDraft by remember { mutableStateOf(selfRefreshCount.toString()) }
+            var otherRefreshDraft by remember { mutableStateOf(otherRefreshCount.toString()) }
             var latestDraft by remember { mutableStateOf(latestCount.toString()) }
             var renderDraft by remember { mutableStateOf(renderOnScroll) }
             var batchDraft by remember { mutableStateOf(batchLimit.toString()) }
@@ -559,6 +626,22 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                             value = contextDraft,
                             onValueChange = { contextDraft = it.filter(Char::isDigit).take(3) },
                             label = { Text(stringResource(R.string.chat_jev_context_count)) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        )
+                        OutlinedTextField(
+                            value = selfRefreshDraft,
+                            onValueChange = { selfRefreshDraft = it.filter(Char::isDigit).take(3) },
+                            label = { Text(stringResource(R.string.chat_jev_self_refresh_count)) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        )
+                        OutlinedTextField(
+                            value = otherRefreshDraft,
+                            onValueChange = { otherRefreshDraft = it.filter(Char::isDigit).take(3) },
+                            label = { Text(stringResource(R.string.chat_jev_other_refresh_count)) },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -597,13 +680,18 @@ object JevAnalysis : ClickableFeature(), WeChatMessageViewApi.ICreateViewListene
                     Button(onClick = {
                         val nextKey = draft.trim()
                         val nextContext = contextDraft.toIntOrNull()?.coerceIn(0, 200) ?: contextCount
+                        val nextSelfRefresh = selfRefreshDraft.toIntOrNull()?.coerceIn(0, 200) ?: selfRefreshCount
+                        val nextOtherRefresh = otherRefreshDraft.toIntOrNull()?.coerceIn(0, 200) ?: otherRefreshCount
                         val nextLatest = latestDraft.toIntOrNull()?.coerceIn(1, 200) ?: latestCount
                         val nextBatch = batchDraft.toIntOrNull()?.coerceIn(1, 20) ?: batchLimit
                         val nextNote = noteDraft.trim()
-                        val contentChanged = apiKey != nextKey || contextCount != nextContext || note != nextNote
+                        val contentChanged = apiKey != nextKey || contextCount != nextContext ||
+                            selfRefreshCount != nextSelfRefresh || otherRefreshCount != nextOtherRefresh || note != nextNote
                         val windowChanged = latestCount != nextLatest || renderOnScroll != renderDraft
                         apiKey = nextKey
                         contextCount = nextContext
+                        selfRefreshCount = nextSelfRefresh
+                        otherRefreshCount = nextOtherRefresh
                         latestCount = nextLatest
                         renderOnScroll = renderDraft
                         batchLimit = nextBatch

@@ -1,0 +1,72 @@
+name: Jev CI
+
+on:
+  push:
+    branches: [jev]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Cache PRoot build
+        uses: actions/cache@v6
+        with:
+          path: target/proot-static
+          key: proot-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml', 'patches/proot/android-ptrace-events.patch', 'third_party/proot-static/tools/build-static-aarch64.sh') }}
+
+      - name: Install Android SDK and system dependencies
+        run: |
+          ndk=$(sed -n 's/^ndk = "\(.*\)"/\1/p' gradle/libs.versions.toml)
+          sdk=$(sed -n 's/^compileSdk = "\(.*\)"/\1/p' gradle/libs.versions.toml)
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --channel=3 \
+            "ndk;$ndk" "platforms;android-$sdk" "build-tools;$sdk.0.0"
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+
+      - name: Test Jev
+        run: ./gradlew :app:testStandardDebugUnitTest --tests 'dev.ujhhgtg.wekit.features.items.chat.Jev*'
+
+      - name: Build standard debug APK
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./x build --flavor standard
+
+      - name: Verify APK
+        run: python3 .github/scripts/verify-dual-apk.py --check-installer app/build/outputs/apk/standard/debug/app-standard-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: wekit-jev-standard-debug
+          path: app/build/outputs/apk/standard/debug/app-standard-debug.apk
+          if-no-files-found: error
+          retention-days: 14

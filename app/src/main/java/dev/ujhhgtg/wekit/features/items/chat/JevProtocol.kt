@@ -20,6 +20,7 @@ sealed interface JevResult {
     val model: String
     val tokens: Int
     val afterCount: Int
+    val afterIds: List<Long>
 }
 
 data class JevIncoming(
@@ -27,6 +28,7 @@ data class JevIncoming(
     override val model: String,
     override val tokens: Int,
     override val afterCount: Int,
+    override val afterIds: List<Long> = emptyList(),
     val emotions: List<Pair<String, Double>>,
     val sarcasm: Double,
     val teasing: Double,
@@ -46,6 +48,7 @@ data class JevOutgoing(
     override val model: String,
     override val tokens: Int,
     override val afterCount: Int,
+    override val afterIds: List<Long> = emptyList(),
     val respond: Double,
     val warmth: Double,
     val tone: Double,
@@ -168,7 +171,7 @@ object JevProtocol {
             "`target.quote`（被引用的消息）".takeIf { target.quote != null },
             "`relationship`（两人关系）".takeIf { relation.isNotBlank() },
             "`note`（补充说明）".takeIf { note.isNotBlank() },
-            "`after`（这条消息之后的回复）".takeIf { after.isNotEmpty() },
+            "`after`（目标之后的相关消息）".takeIf { after.isNotEmpty() },
         )
         put("questions", buildJsonObject {
             for ((id, question) in if (outgoing) this@JevProtocol.outgoing else incoming) {
@@ -205,13 +208,13 @@ object JevProtocol {
         fun score(id: String) = answer(id).let { it.getValue("score").jsonPrimitive.double / (it.getValue("legend").jsonObject.size - 1) }
             .also { require(it in 0.0..1.0) { "Invalid $id" } }
         return if (job.outgoing) {
-            JevOutgoing(job.target, model, tokens, job.afterCount,
+            JevOutgoing(job.target, model, tokens, job.afterCount, job.afterIds,
                 score("respond"), score("warmth"), score("tone"), noul("cold"), noul("sarcastic"))
         } else {
             val emotions = answer("emotion").getValue("probabilities").jsonObject
                 .map { (name, p) -> name to p.jsonPrimitive.double }.sortedByDescending { it.second }
             require(emotions.isNotEmpty()) { "Missing emotions" }
-            JevIncoming(job.target, model, tokens, job.afterCount, emotions,
+            JevIncoming(job.target, model, tokens, job.afterCount, job.afterIds, emotions,
                 noul("sarcasm"), noul("teasing"), noul("slang"), noul("perfunctory"))
         }
     }

@@ -27,7 +27,7 @@ GAP_NOTE_MIN = 30
 PLACEHOLDERS = {"image": "[图片]", "sticker": "[表情包]", "voice": "[语音]", "video": "[视频]", "transfer": "[转账]",
                 "red_packet": "[红包]", "pat": "[拍了拍]", "recall": "[撤回了一条消息]", "call": "[语音通话]"}
 MENTIONS = {"quote": "`target.quote`（被引用的消息）", "relationship": "`relationship`（两人关系）",
-            "after": "`after`（这条消息之后的回复）"}
+            "after": "`after`（目标之后的相关消息）"}
 INCOMING_Q = {k: INCOMING[k] for k in ("yygq_zh_ex", "teasing_zh_ex", "slang_zh", "perfunctory_zh_ex", "emotion_zh")}
 OUTGOING_Q = {k: OUTGOING[k] for k in ("respond_zh", "warmth_zh", "tone_zh", "risk_cold_zh", "risk_yygq_zh")}
 VARIANTS = {
@@ -85,7 +85,11 @@ def build_state(sample, variant):
     if variant.get("relationship") and sample.get("relationship"):
         state["relationship"] = sample["relationship"]
     if variant.get("after") and sample.get("after"):
-        state["after"] = [{"from": m["from"], "text": m["text"]} for m in sample["after"]]
+        later = sample["after"]
+        if sample["target"]["from"] != "我":
+            later = [m for m in later if m["from"] == sample["target"]["from"]]
+        if later:
+            state["after"] = [{"from": m["from"], "text": m["text"]} for m in later]
     return state
 
 

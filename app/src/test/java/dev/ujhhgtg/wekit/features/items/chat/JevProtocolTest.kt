@@ -33,27 +33,28 @@ class JevProtocolTest {
         val state = Json.parseToJsonElement(body).jsonObject.getValue("state").jsonObject
         assertEquals(setOf("conversation", "target", "relationship", "after"), state.keys)
         assertEquals(
-            "结合 `conversation`、`target.quote`（被引用的消息）、`relationship`（两人关系）、`after`（这条消息之后的回复） 判断。",
+            "结合 `conversation`、`target.quote`（被引用的消息）、`relationship`（两人关系）、`after`（目标之后的相关消息） 判断。",
             instructions(body, "sarcasm").substringAfter("？"),
         )
         val mine = JevProtocol.request(JevLine("我", "辛苦了🙂"), emptyList(),
             listOf(JevLine("对方", "你这个表情什么意思？")), "", "我说话比较直", true)
         assertEquals(setOf("respond", "warmth", "tone", "cold", "sarcastic"), questions(mine).keys)
         assertEquals(
-            "对方读到 `target.text` 会不会觉得冷淡、敷衍？结合 `conversation`、`note`（补充说明）、`after`（这条消息之后的回复） 判断。",
+            "对方读到 `target.text` 会不会觉得冷淡、敷衍？结合 `conversation`、`note`（补充说明）、`after`（目标之后的相关消息） 判断。",
             instructions(mine, "cold"),
         )
     }
 
     @Test
     fun parsesAnswersAndSummarizesTheOtherSide() {
-        val job = JevJob(1, "", JevLine("对方", "你可真行"), outgoing = false, afterCount = 2)
+        val job = JevJob(1, "", JevLine("对方", "你可真行"), outgoing = false, afterCount = 2, afterIds = listOf(8, 9))
         val result = JevProtocol.parse("""{"model":"jev-1.13.0","usage":{"input_tokens":812},"answers":{
             "sarcasm":{"noul":0.91},"teasing":{"noul":0.2},"slang":{"noul":0.1},"perfunctory":{"noul":0.7},
             "emotion":{"choice":"不满","probabilities":{"平静":0.1,"不满":0.85,"难过":0.05}}}}""", job) as JevIncoming
         assertEquals(listOf("不满", "平静", "难过"), result.emotions.map { it.first })
         assertEquals(812, result.tokens)
         assertEquals(2, result.afterCount)
+        assertEquals(listOf(8L, 9L), result.afterIds)
         assertEquals("不满 · 阴阳怪气 91%", result.label)
         assertTrue(result.warning)
     }
@@ -72,7 +73,7 @@ class JevProtocolTest {
     @Test
     fun ironyTiersSeparateSarcasmFromTeasing() {
         fun incoming(sarcasm: Double, teasing: Double) =
-            JevIncoming(JevLine("对方", "x"), "m", 0, 0, listOf("平静" to 1.0), sarcasm, teasing, 0.0, 0.0)
+            JevIncoming(JevLine("对方", "x"), "m", 0, 0, emptyList(), listOf("平静" to 1.0), sarcasm, teasing, 0.0, 0.0)
         assertEquals("平静 · 可能在说反话", incoming(0.6, 0.3).label)
         assertEquals("平静 · 调侃", incoming(0.79, 0.84).label)
         assertEquals("平静", incoming(0.2, 0.1).label)

@@ -4,24 +4,31 @@ import dev.ujhhgtg.wekit.features.api.core.models.MessageType
 import dev.ujhhgtg.wekit.features.api.core.models.WeMessage
 import dev.ujhhgtg.wekit.utils.strings.isGroupChatWxId
 
-data class JevJob(val id: Long, val body: String, val target: JevLine, val outgoing: Boolean, val afterCount: Int)
+data class JevJob(val id: Long, val body: String, val target: JevLine, val outgoing: Boolean,
+                  val afterCount: Int, val afterIds: List<Long> = emptyList(), val visibleOnly: Boolean = false)
 
 /** 解析好的引用回复：[title] 是回复本身，[text] 是被引用的那句话（非文字时为占位符）。 */
 data class JevQuote(val title: String, val fromSelf: Boolean, val sender: String, val text: String)
 
 object JevWindow {
-    const val AFTER = 3
     private const val SESSION_GAP = 6 * 60 * 60 * 1000L
     private const val GAP_NOTE = 30 * 60 * 1000L
     private const val NEAR = 5
 
     fun plan(rows: List<WeMessage>, latestCount: Int, contextCap: Int, quotes: Map<Long, JevQuote>,
              relation: String, note: String): List<JevJob> =
-        planMatching(rows, contextCap, quotes, relation, note) { index, _ -> index < latestCount.coerceIn(1, 200) }
+        planMatching(rows, contextCap, latestCount, latestCount, quotes, relation, note) { index, _ -> index < latestCount.coerceIn(1, 200) }
 
-    fun planVisible(rows: List<WeMessage>, visibleIds: Set<Long>, contextCap: Int, quotes: Map<Long, JevQuote>,
-                    relation: String, note: String): List<JevJob> =
-        planMatching(rows, contextCap, quotes, relation, note) { _, message -> message.msgId in visibleIds }
+    fun planVisible(rows: List<WeMessage>, visibleIds: Set<Long>, contextCap: Int, selfWindow: Int, otherWindow: Int,
+                    quotes: Map<Long, JevQuote>, relation: String, note: String): List<JevJob> =
+        planMatching(rows, contextCap, selfWindow, otherWindow, quotes, relation, note) { _, message -> message.msgId in visibleIds }
+            .map { it.copy(visibleOnly = true) }
+
+    fun planRefresh(rows: List<WeMessage>, selfCount: Int, otherCount: Int, contextCap: Int,
+                    quotes: Map<Long, JevQuote>, relation: String, note: String, newCount: Int = 1): List<JevJob> =
+        planMatching(rows, contextCap, maxOf(selfCount, newCount), maxOf(otherCount, newCount), quotes, relation, note) { index, message ->
+            index < newCount || index < if (message.isSend != 0) selfCount.coerceIn(0, 200) else otherCount.coerceIn(0, 200)
+        }
 
     fun placeholder(code: Int, content: String = ""): String {
         val type = MessageType.fromCode(code) ?: return "[其他消息]"
@@ -47,7 +54,8 @@ object JevWindow {
     }
 
     // rows 按时间从新到旧排列
-    private fun planMatching(rows: List<WeMessage>, contextCap: Int, quotes: Map<Long, JevQuote>, relation: String,
+    private fun planMatching(rows: List<WeMessage>, contextCap: Int, selfWindow: Int, otherWindow: Int,
+                             quotes: Map<Long, JevQuote>, relation: String,
                              note: String, selected: (Int, WeMessage) -> Boolean): List<JevJob> {
         val members = rows.asReversed().asSequence()
             .filter { it.talker.isGroupChatWxId && it.isSend == 0 }
@@ -68,16 +76,37 @@ object JevWindow {
             val conversation = earlier.mapIndexed { i, row ->
                 row.line(members, quotes, if (i >= earlier.size - NEAR) 300 else 80, earlier.getOrNull(i - 1)?.createTime)
             }
-            val after = rows.subList(maxOf(0, index - AFTER), index).asReversed()
-                .filter { it.msgId > 0 }.map { it.line(members, quotes, 300, null) }
+            // 刷新范围内的目标参考全部后续消息；群聊不把别人的话归到目标发送者
+            val outgoing = message.isSend != 0
+            val afterWindow = (if (outgoing) selfWindow else otherWindow).coerceIn(1, 200)
+            val sender = message.memberId()
+            val afterRows = (if (index < afterWindow) index - 1 downTo 0 else IntRange.EMPTY).mapNotNull { position ->
+                val row = rows[position]
+                when {
+                    row.msgId <= 0 -> null
+                    !outgoing -> row.takeIf {
+                        it.isSend == 0 && (!message.talker.isGroupChatWxId ||
+                            sender.isNotEmpty() && it.memberId() == sender)
+                    }
+                    row.isSend != 0 || !message.talker.isGroupChatWxId -> row
+                    rows[position + 1].isSend != 0 ||
+                        quotes[row.msgId]?.let { it.fromSelf && it.text == text } == true -> row
+                    else -> null
+                }
+            }
+            val after = afterRows.mapIndexed { i, row ->
+                row.line(members, quotes, if (i >= afterRows.size - NEAR) 300 else 40, null)
+            }
             val target = JevLine(message.speaker(members), text,
                 earlier.lastOrNull()?.let { gap(message.createTime - it.createTime) },
                 quotes[message.msgId]?.line(message.talker, members))
-            val outgoing = message.isSend != 0
             JevJob(message.msgId, JevProtocol.request(target, conversation, after, relation, note, outgoing),
-                target, outgoing, after.size)
+                target, outgoing, after.size, afterRows.map { it.msgId })
         }
     }
+
+    private fun WeMessage.memberId(): String =
+        if (isSend == 0 && talker.isGroupChatWxId) content.substringBefore(":\n", "") else ""
 
     private fun WeMessage.body(quotes: Map<Long, JevQuote>): String? = when (typeCode) {
         MessageType.TEXT.code -> text()
