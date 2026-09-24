@@ -32,6 +32,8 @@
 
 ## 致谢
 
+[linuxdo](https://linux.do)
+
 [WeKit 上游](https://github.com/cwuom/WeKit)
 
 [WAuxiliary](https://github.com/HdShare/WAuxiliary_Public)
