@@ -48,7 +48,7 @@ jobs:
           set +o pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --channel=3 \
-            "ndk;$ndk" "platforms;android-$sdk" "build-tools;$sdk.0.0"
+            "ndk;$ndk" "platforms;android-$sdk.0" "build-tools;$sdk.0.0"
           sudo apt-get update
           sudo apt-get install -y gcc-multilib
 
