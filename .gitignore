@@ -48,3 +48,6 @@ docs/superpowers/
 
 # Extension-pack build outputs (./x extensions pack/lock)
 dist/
+
+# local reference docs; do not publish
+/二开的参考文档/
