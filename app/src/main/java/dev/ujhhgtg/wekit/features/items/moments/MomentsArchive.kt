@@ -50,6 +50,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.concurrent.thread
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.protobuf.ProtoBuf
 
 object MomentsArchive : ClickableFeature(),
