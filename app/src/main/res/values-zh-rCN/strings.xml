@@ -869,6 +869,13 @@
     <string name="feature_display_details_description">在朋友圈列表项底部显示详情信息</string>
     <string name="feature_enhance_query_name">朋友圈查询增强</string>
     <string name="feature_enhance_query_description">显示历史撤回以及缓存过的朋友圈内容</string>
+    <string name="feature_moments_archive_name">朋友圈快照</string>
+    <string name="feature_moments_archive_description">把刷到过的朋友圈保存到本地快照，好友开了三天可见也能回看；仅包含本机收到过的内容</string>
+    <string name="moments_archive_all">全部好友</string>
+    <string name="moments_archive_import">导入现有缓存</string>
+    <string name="moments_archive_imported">已导入 %1$d 条</string>
+    <string name="moments_archive_empty">暂无快照，点上方“导入现有缓存”或之后刷到时会自动记录</string>
+    <string name="moments_archive_evicted">这条内容已被微信清理，无法打开原生详情页</string>
     <string name="feature_fake_moments_likes_name">伪集赞</string>
     <string name="feature_fake_moments_likes_description">自定义朋友圈点赞用户列表</string>
     <string name="feature_forward_messages_to_moments_name">消息转圈</string>

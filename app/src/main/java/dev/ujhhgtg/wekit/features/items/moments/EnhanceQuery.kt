@@ -35,17 +35,17 @@ object EnhanceQuery : SwitchFeature(), WeDatabaseListenerApi.IQueryListener {
     }
 
     private fun rewriteSql(sql: String): String {
-        if (!sql.contains("select *,rowid from SnsInfo", false)) return sql
+        if (!sql.contains("select *,rowid from SnsInfo", true)) return sql
 
         var newSql = sql
 
-        if (sql.contains("WHERE SnsInfo.userName=", false)) {
+        if (sql.contains("WHERE SnsInfo.userName=", true)) {
             newSql = sql
                 .replace(SOURCE_TYPE_FILTER, SOURCE_TYPE_FILTER_ENHANCED)
                 .replace("(snsId >= ", "(1=1 or snsId >= ")
         }
 
-        return newSql.replace("(sourceType & 2 != 0 )", "(1=1)")
+        return newSql.replace("(sourceType & 2 != 0 )", "(1=1)", true)
     }
 
     private const val SOURCE_TYPE_FILTER =
