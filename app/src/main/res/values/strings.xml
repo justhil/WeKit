@@ -907,11 +907,11 @@
     <string name="feature_enhance_query_name">Enhanced Moments history</string>
     <string name="feature_enhance_query_description">Display historical recall and cached Moments content</string>
     <string name="feature_moments_archive_name">Moments archive</string>
-    <string name="feature_moments_archive_description">Keep a local archive of every Moments post this device has seen, so posts behind a friend's 3-day limit stay viewable; only posts already delivered to this device are kept</string>
+    <string name="feature_moments_archive_description">Keep a local archive of every Moments post this device has seen, so posts behind a friend’s 3-day limit stay viewable; only posts already delivered to this device are kept</string>
     <string name="moments_archive_all">All contacts</string>
     <string name="moments_archive_import">Import existing cache</string>
     <string name="moments_archive_imported">Imported %1$d posts</string>
-    <string name="moments_archive_empty">No archived posts yet. Tap "Import existing cache" or browse Moments to record new ones.</string>
+    <string name="moments_archive_empty">No archived posts yet. Tap 'Import existing cache' or browse Moments to record new ones.</string>
     <string name="moments_archive_evicted">This post was evicted by WeChat; the native detail page is unavailable</string>
     <string name="feature_fake_moments_likes_name">Fake Moments likes</string>
     <string name="feature_fake_moments_likes_description">Customize the list of like users in Moments</string>
