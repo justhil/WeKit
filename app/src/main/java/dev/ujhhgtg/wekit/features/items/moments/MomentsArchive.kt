@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,7 +42,6 @@ import dev.ujhhgtg.wekit.features.core.ClickableFeature
 import dev.ujhhgtg.wekit.features.core.FeatureCategoryIds
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.m3.DropdownOption
-import dev.ujhhgtg.wekit.ui.content.m3.ExpressiveOptionDropdown
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.HostInfo
 import dev.ujhhgtg.wekit.utils.WeLogger
@@ -275,17 +276,22 @@ object MomentsArchive : ClickableFeature(),
                                         .padding(vertical = 12.dp, horizontal = 4.dp),
                                     style = MaterialTheme.typography.bodyLarge,
                                 )
-                                ExpressiveOptionDropdown(
+                                DropdownMenu(
                                     expanded = expanded,
-                                    value = selectedUser,
-                                    options = options,
                                     onDismissRequest = { expanded = false },
-                                    onValueChange = {
-                                        selectedUser = it
-                                        expanded = false
-                                        reload(it)
-                                    },
-                                )
+                                    modifier = Modifier.heightIn(max = 480.dp),
+                                ) {
+                                    options.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option.label) },
+                                            onClick = {
+                                                selectedUser = option.value
+                                                expanded = false
+                                                reload(option.value)
+                                            },
+                                        )
+                                    }
+                                }
                             }
                             TextButton(onClick = {
                                 thread {
